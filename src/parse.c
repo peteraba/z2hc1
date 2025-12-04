@@ -11,26 +11,87 @@
 #include "parse.h"
 
 void list_employees(struct dbheader_t *dbhdr, struct employee_t *employees) {
+	if (dbhdr == NULL) {
+		printf("dbhdr is NULL\n");
+		return;
+	}
+	if (employees == NULL) {
+		printf("employees is NULL\n");
+		return;
+	}
 
+	int i = 0;
+	for (; i < dbhdr->count; i++) {
+		printf("Employee %d\n", i);
+		printf("\tName: %s\n", employees[i].name);
+		printf("\tAddress: %s\n", employees[i].address);
+		printf("\tHours: %d\n", employees[i].hours);
+	}
 }
 
-int add_employee(struct dbheader_t *dbhdr, struct employee_t *employees, char *addstring) {
+int add_employee(struct dbheader_t *dbhdr, struct employee_t **employees, char *addstring) {
+	if (dbhdr == NULL) {
+		printf("Database header is NULL\n");
+		return STATUS_ERROR;
+	}
+	
+	if (employees == NULL) {
+		printf("Employees pointer is NULL\n");
+		return STATUS_ERROR;
+	}
+
+	if (addstring == NULL) {
+		printf("Addstring is NULL\n");
+		return STATUS_ERROR;
+	}
+
 	printf("%s\n", addstring);
 
-	char *name = strtok(addstring, ",");
+	char *addstring_copy = strdup(addstring);
+	if (addstring_copy == NULL) {
+		printf("Malloc failed\n");
+		return STATUS_ERROR;
+	}
+
+	char *name = strtok(addstring_copy, ",");
+	if (name == NULL) {
+		printf("Invalid addstring format\n");
+		free(addstring_copy);
+		return STATUS_ERROR;
+	}
 
 	char *addr = strtok(NULL, ",");
+	if (addr == NULL) {
+		printf("Invalid addstring format\n");
+		free(addstring_copy);
+		return STATUS_ERROR;
+	}
 
 	char *hours = strtok(NULL, ",");
+	if (hours == NULL) {
+		printf("Invalid addstring format\n");
+		free(addstring_copy);
+		return STATUS_ERROR;
+	}
 
 	printf("%s %s %s\n", name, addr, hours);
 
-	
-	strncpy(employees[dbhdr->count-1].name, name, sizeof(employees[dbhdr->count-1].name));
-	strncpy(employees[dbhdr->count-1].address, addr, sizeof(employees[dbhdr->count-1].address));
+	struct employee_t *new_employees = realloc(*employees, (dbhdr->count+1)*(sizeof(struct employee_t)));
+	if (new_employees == NULL) {
+		printf("Realloc failed\n");
+		free(addstring_copy);
+		return STATUS_ERROR;
+	}
+	*employees = new_employees;
 
-	employees[dbhdr->count-1].hours = atoi(hours);
-	
+	strncpy((*employees)[dbhdr->count].name, name, sizeof((*employees)[dbhdr->count].name));
+	strncpy((*employees)[dbhdr->count].address, addr, sizeof((*employees)[dbhdr->count].address));
+
+	(*employees)[dbhdr->count].hours = atoi(hours);
+
+	dbhdr->count++;
+
+	free(addstring_copy);
 
 	return STATUS_SUCCESS;
 }
@@ -41,16 +102,24 @@ int read_employees(int fd, struct dbheader_t *dbhdr, struct employee_t **employe
 		return STATUS_ERROR;
 	}
 
-	int count = dbhdr->count;
-
-	struct employee_t *employees = calloc(count, sizeof(struct employee_t));
-	if (employees == NULL) {
-		printf("Malloc failed\n");
+	if (dbhdr == NULL) {
+		printf("dbhdr is NULL\n");
 		return STATUS_ERROR;
 	}
 
-	read(fd, employees, count*sizeof(struct employee_t));
 
+	int count = dbhdr->count;
+
+	struct employee_t *employees = NULL;
+	if (count > 0) {
+		employees = calloc(count, sizeof(struct employee_t));
+		if (employees == NULL) {
+			printf("Malloc failed\n");
+			return STATUS_ERROR;
+		}
+		read(fd, employees, count*sizeof(struct employee_t));
+	}
+	
 	int i = 0;
 	for (; i < count; i++) {
 		employees[i].hours = ntohl(employees[i].hours);
@@ -58,11 +127,17 @@ int read_employees(int fd, struct dbheader_t *dbhdr, struct employee_t **employe
 
 	*employeesOut = employees;
 	return STATUS_SUCCESS;
+
 }
 
 int output_file(int fd, struct dbheader_t *dbhdr, struct employee_t *employees) {
 	if (fd < 0) {
 		printf("Got a bad FD from the user\n");
+		return STATUS_ERROR;
+	}
+
+	if (dbhdr == NULL) {
+		printf("dbhdr is NULL\n");
 		return STATUS_ERROR;
 	}
 
@@ -84,6 +159,7 @@ int output_file(int fd, struct dbheader_t *dbhdr, struct employee_t *employees) 
 	}
 
 	return STATUS_SUCCESS;
+
 }	
 
 int validate_db_header(int fd, struct dbheader_t **headerOut) {
@@ -115,10 +191,11 @@ int validate_db_header(int fd, struct dbheader_t **headerOut) {
 		return -1;
 	}
 
+
 	if (header->version != 1) {
 		printf("Impromper header version\n");
 		free(header);
-		return -1;
+		return STATUS_ERROR;
 	}
 
 	struct stat dbstat = {0};
@@ -130,9 +207,11 @@ int validate_db_header(int fd, struct dbheader_t **headerOut) {
 	}
 
 	*headerOut = header;
+
+	return STATUS_SUCCESS;
 }
 
-int create_db_header(int fd, struct dbheader_t **headerOut) {
+int create_db_header(struct dbheader_t **headerOut) {
 	struct dbheader_t *header = calloc(1, sizeof(struct dbheader_t));
 	if (header == NULL) {
 		printf("Malloc failed to create db header\n");
